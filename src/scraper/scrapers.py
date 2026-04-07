@@ -70,11 +70,10 @@ class TestStoreScraper(BaseScraper):
                 
                 # Try to wait for product containers (with fallback selectors)
                 selectors = [
-                    "div.product",           # Primary selector
-                    ".product-item",         # Alternative 1
-                    ".product",              # Alternative 2
-                    "[data-product]",        # Data attribute
-                    ".card.product-card"     # Bootstrap style
+                    "div.thumbnail",         # webscraper.io test site
+                    "div.product",           # Alternative 1
+                    ".product-item",         # Alternative 2
+                    ".product",              # Alternative 3
                 ]
                 
                 selector_found = False
@@ -113,7 +112,12 @@ class TestStoreScraper(BaseScraper):
     
     async def _extract_products(self, page: Page) -> List[Dict[str, Any]]:
         """
-        Extract product information from the page with fallback strategies.
+        Extract product information from the page.
+        
+        Targets webscraper.io test site HTML structure:
+          div.thumbnail > div.caption > h4 > a.title  (product name + link)
+          div.thumbnail > div.caption > h4.price       (price)
+          div.thumbnail > div.caption > p.description   (description)
         
         Args:
             page: Playwright page object
@@ -124,108 +128,47 @@ class TestStoreScraper(BaseScraper):
         products = []
         
         try:
-            # Try primary extraction method
-            self.logger.debug("Attempting primary extraction with div.product selector")
+            self.logger.debug("Extracting products with div.thumbnail selector")
             products_data = await page.evaluate("""
                 () => {
-                    const productCards = document.querySelectorAll('div.product');
+                    const cards = document.querySelectorAll('div.thumbnail');
                     const products = [];
+                    const baseUrl = window.location.origin;
                     
-                    productCards.forEach(card => {
-                        const titleEl = card.querySelector('h2, .title, .product-title');
-                        const priceEl = card.querySelector('[data-price], .price, .product-price');
-                        const descEl = card.querySelector('[data-description], .description, .product-description, p');
+                    cards.forEach((card, index) => {
+                        const titleLink = card.querySelector('a.title');
+                        const priceEl = card.querySelector('h4.price, .price, .pull-right.price');
+                        const descEl = card.querySelector('p.description, .description');
                         
-                        if (titleEl && titleEl.textContent.trim()) {
-                            const product = {
-                                product_name: titleEl.textContent.trim(),
-                                price: priceEl ? priceEl.textContent.trim() : '0',
-                                description: descEl ? descEl.textContent.trim() : '',
-                                url: window.location.href,
-                                currency: 'USD'
-                            };
-                            products.push(product);
-                        }
-                    });
-                    
-                    return products;
-                }
-            """)
-            
-            if products_data and len(products_data) > 0:
-                self.logger.info(f"Primary extraction successful: {len(products_data)} products")
-                # Sanitize prices
-                for product in products_data:
-                    product["price"] = DataValidator.sanitize_price(product["price"])
-                    product["stock_status"] = "unknown"
-                    products.append(product)
-                return products
-            else:
-                self.logger.warning("Primary selector found 0 products, trying fallback method")
-        
-        except Exception as e:
-            self.logger.warning(f"Primary extraction failed: {e}, trying fallback")
-        
-        # Fallback extraction method - try alternative selectors
-        try:
-            self.logger.debug("Attempting fallback extraction with alternative selectors")
-            products_data = await page.evaluate("""
-                () => {
-                    let productCards = [];
-                    const products = [];
-                    
-                    // Try multiple selector strategies
-                    if (productCards.length === 0) {
-                        productCards = document.querySelectorAll('.product-item');
-                    }
-                    if (productCards.length === 0) {
-                        productCards = document.querySelectorAll('[data-product]');
-                    }
-                    if (productCards.length === 0) {
-                        productCards = document.querySelectorAll('.product');
-                    }
-                    if (productCards.length === 0) {
-                        productCards = document.querySelectorAll('.card.product-card');
-                    }
-                    // Last resort: get all divs with class containing 'product'
-                    if (productCards.length === 0) {
-                        productCards = Array.from(document.querySelectorAll('div')).filter(
-                            el => el.className && el.className.includes('product')
-                        );
-                    }
-                    
-                    productCards.forEach(card => {
-                        // Try multiple selector strategies for title
-                        let titleEl = card.querySelector('h2, .title, .product-title, [data-title]');
-                        if (!titleEl) {
-                            titleEl = card.querySelector('a');
-                        }
-                        
-                        let priceEl = card.querySelector('[data-price], .price, .product-price, [data-price-value]');
-                        if (!priceEl) {
-                            priceEl = card.querySelector('span[class*="price"]');
-                        }
-                        
-                        let descEl = card.querySelector('[data-description], .description, .product-description, .desc');
-                        if (!descEl) {
-                            const allText = card.textContent;
-                            if (allText && allText.length > 50) {
-                                descEl = { textContent: allText.substring(0, 200) };
+                        let productUrl = null;
+                        if (titleLink && titleLink.href) {
+                            productUrl = titleLink.href;
+                        } else {
+                            const anyLink = card.querySelector('a[href]');
+                            if (anyLink && anyLink.href) {
+                                productUrl = anyLink.href;
+                            } else {
+                                productUrl = window.location.href + '#product-' + index;
                             }
                         }
                         
-                        const title = titleEl ? titleEl.textContent.trim() : null;
-                        const price = priceEl ? priceEl.textContent.trim() : '0';
+                        const title = titleLink
+                            ? titleLink.textContent.trim()
+                            : (card.querySelector('h4:not(.price), h2, .title')
+                                ? card.querySelector('h4:not(.price), h2, .title').textContent.trim()
+                                : null);
                         
-                        if (title && title.length > 2) {
-                            const product = {
+                        const priceText = priceEl ? priceEl.textContent.trim() : '0';
+                        const desc = descEl ? descEl.textContent.trim() : '';
+                        
+                        if (title && title.length > 1) {
+                            products.push({
                                 product_name: title,
-                                price: price,
-                                description: descEl ? descEl.textContent.trim().substring(0, 200) : '',
-                                url: window.location.href,
+                                price: priceText,
+                                description: desc.substring(0, 500),
+                                url: productUrl,
                                 currency: 'USD'
-                            };
-                            products.push(product);
+                            });
                         }
                     });
                     
@@ -234,19 +177,19 @@ class TestStoreScraper(BaseScraper):
             """)
             
             if products_data and len(products_data) > 0:
-                self.logger.info(f"Fallback extraction successful: {len(products_data)} products")
+                self.logger.info(f"Extraction successful: {len(products_data)} products")
                 for product in products_data:
                     product["price"] = DataValidator.sanitize_price(product["price"])
                     product["stock_status"] = "unknown"
                     products.append(product)
                 return products
             else:
-                self.logger.warning("Fallback extraction also returned 0 products")
-                return []
-                
+                self.logger.warning("div.thumbnail selector found 0 products")
+        
         except Exception as e:
-            self.logger.error(f"Fallback extraction failed: {e}", exc_info=True)
-            return []
+            self.logger.warning(f"Primary extraction failed: {e}")
+        
+        return products
     
     async def validate_data(self, data: Dict[str, Any]) -> bool:
         """
@@ -349,21 +292,26 @@ class AmazonScraper(BaseScraper):
         Note: Replace with actual Playwright logic when ready.
         """
         # Placeholder for Playwright integration
-        return {
+        product = {
             "product_name": "Sample Product",
             "price": 29.99,
             "url": product_url,
             "currency": "USD",
             "stock_status": "in_stock"
         }
+        return {
+            "products": [product],
+            "url": product_url,
+            "total_products": 1
+        }
     
     async def validate_data(self, data: Dict[str, Any]) -> bool:
         """Validate Amazon product data."""
-        try:
-            DataValidator.validate_product(data)
-            return True
-        except Exception:
-            return False
+        return (
+            "products" in data
+            and isinstance(data["products"], list)
+            and len(data["products"]) > 0
+        )
 
 
 class EbayScraper(BaseScraper):
@@ -378,18 +326,23 @@ class EbayScraper(BaseScraper):
     async def scrape(self, product_url: str) -> Dict[str, Any]:
         """Implement eBay-specific scraping logic."""
         # Placeholder for Playwright integration
-        return {
+        product = {
             "product_name": "Sample eBay Product",
             "price": 15.99,
             "url": product_url,
             "currency": "USD",
             "stock_status": "in_stock"
         }
+        return {
+            "products": [product],
+            "url": product_url,
+            "total_products": 1
+        }
     
     async def validate_data(self, data: Dict[str, Any]) -> bool:
         """Validate eBay product data."""
-        try:
-            DataValidator.validate_product(data)
-            return True
-        except Exception:
-            return False
+        return (
+            "products" in data
+            and isinstance(data["products"], list)
+            and len(data["products"]) > 0
+        )

@@ -9,7 +9,7 @@ from config import settings
 from .routes import router
 from .models import HealthCheck
 from src.database import init_db
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # Configure logging
@@ -55,7 +55,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -71,7 +71,7 @@ async def health_check():
     return HealthCheck(
         status="healthy",
         database="connected",
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(timezone.utc)
     )
 
 

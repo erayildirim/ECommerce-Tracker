@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -13,6 +13,7 @@ from .models import (
     ScrapingResponse
 )
 from src.database import get_db, Product
+from src.database.models import PriceHistory as DBPriceHistory
 
 
 router = APIRouter(prefix="/api/v1", tags=["products"])
@@ -77,9 +78,17 @@ async def get_price_history(
     db: Session = Depends(get_db)
 ):
     """Get price history for a product in the last N days."""
-    # Placeholder for price history logic
-    # In production, you'd query a separate price_history table
-    return []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    history = (
+        db.query(DBPriceHistory)
+        .filter(
+            DBPriceHistory.product_id == product_id,
+            DBPriceHistory.recorded_at >= cutoff
+        )
+        .order_by(DBPriceHistory.recorded_at.desc())
+        .all()
+    )
+    return history
 
 
 @router.post("/scraping/batch", response_model=ScrapingResponse)
@@ -96,7 +105,7 @@ async def start_scraping(
         successfully_scraped=0,
         failed_count=0,
         results=[],
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(timezone.utc)
     )
     return response
 
@@ -110,5 +119,5 @@ async def get_statistics(db: Session = Depends(get_db)):
     return {
         "total_products": total_products,
         "total_sites_tracked": sites_count,
-        "timestamp": datetime.utcnow()
+        "timestamp": datetime.now(timezone.utc)
     }

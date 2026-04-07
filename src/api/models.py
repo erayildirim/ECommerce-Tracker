@@ -39,7 +39,7 @@ class ProductResponse(BaseModel):
     stock_status: str
     site_name: str
     description: Optional[str]
-    scraped_at: datetime
+    scraped_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     

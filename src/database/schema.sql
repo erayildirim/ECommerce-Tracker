@@ -1,6 +1,5 @@
-"""Database schema initialization."""
-
-CREATE_PRODUCTS_TABLE = """
+-- Database schema for E-Commerce Tracker
+-- Products table
 CREATE TABLE IF NOT EXISTS products (
     id SERIAL PRIMARY KEY,
     product_name VARCHAR(500) NOT NULL,
@@ -13,6 +12,7 @@ CREATE TABLE IF NOT EXISTS products (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     scraped_at TIMESTAMP
+    -- url UNIQUE: Each product has its own individual URL (product detail page)
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_site_name ON products(site_name);
@@ -20,6 +20,7 @@ CREATE INDEX IF NOT EXISTS idx_products_url ON products(url);
 CREATE INDEX IF NOT EXISTS idx_products_product_name ON products(product_name);
 
 
+-- Price history table
 CREATE TABLE IF NOT EXISTS price_history (
     id SERIAL PRIMARY KEY,
     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -32,6 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_price_history_product_id ON price_history(product
 CREATE INDEX IF NOT EXISTS idx_price_history_recorded_at ON price_history(recorded_at);
 
 
+-- Scraping jobs table
 CREATE TABLE IF NOT EXISTS scraping_jobs (
     id SERIAL PRIMARY KEY,
     site_name VARCHAR(100) NOT NULL,
@@ -46,4 +48,3 @@ CREATE TABLE IF NOT EXISTS scraping_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_scraping_jobs_site_name ON scraping_jobs(site_name);
 CREATE INDEX IF NOT EXISTS idx_scraping_jobs_status ON scraping_jobs(status);
-"""

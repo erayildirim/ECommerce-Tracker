@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import settings
 from src.scraper import BaseScraper
@@ -25,7 +25,7 @@ async def main():
     """Main application entry point."""
     logger.info("=" * 60)
     logger.info("E-Commerce Price Tracker - Starting Pipeline")
-    logger.info(f"Timestamp: {datetime.utcnow().isoformat()}")
+    logger.info(f"Timestamp: {datetime.now(timezone.utc).isoformat()}")
     logger.info("=" * 60)
     
     try:

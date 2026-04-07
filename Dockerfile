@@ -1,28 +1,45 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies for Playwright
-RUN apt-get update && apt-get install -y \
+# Update apt and install minimal system dependencies for Playwright
+# Only installing essential packages - removed packages that don't exist in slim image
+RUN apt-get update --fix-missing -qq \
+    && apt-get install -y --no-install-recommends -qq \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libxcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    libxrender1 \
+    libxshmfence1 \
+    libxss1 \
+    libxtst6 \
     libnss3 \
     libnspr4 \
-    libdbus-1-3 \
-    libxss1 \
-    libappindicator3-1 \
-    libindicator7 \
-    libxext6 \
-    libxrender-dev \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
+    libxkbcommon0 \
+    libasound2 \
+    xdg-utils \
+    ca-certificates \
+    && apt-get clean -qq \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Copy requirements
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -q -r requirements.txt
 
-# Install Playwright browsers
-RUN playwright install chromium firefox webkit
+# Install Playwright browsers (chromium only - lightweight)
+RUN playwright install chromium
 
 # Copy application code
 COPY . .
@@ -36,10 +53,11 @@ EXPOSE 8000
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV LOG_LEVEL=INFO
+ENV PLAYWRIGHT_HEADLESS=True
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')"
+    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
 
 # Run application
 CMD ["python", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
