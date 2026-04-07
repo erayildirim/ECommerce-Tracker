@@ -3,8 +3,10 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
+
+from config import settings
 
 
 logger = logging.getLogger(__name__)
@@ -19,14 +21,15 @@ class BaseScraper(ABC):
     - Data validation framework
     - Async/await support
     - Logging and monitoring
+    - Configuration-driven timeout and retry behavior
     """
     
     def __init__(
         self,
         site_name: str,
         base_url: str,
-        max_retries: int = 3,
-        timeout: int = 30
+        max_retries: Optional[int] = None,
+        timeout: Optional[int] = None
     ):
         """
         Initialize base scraper.
@@ -34,13 +37,13 @@ class BaseScraper(ABC):
         Args:
             site_name: Name of the e-commerce site
             base_url: Base URL for the scraper
-            max_retries: Maximum retry attempts on failure
-            timeout: Request timeout in seconds
+            max_retries: Maximum retry attempts on failure (defaults to settings.retry_attempts)
+            timeout: Request timeout in seconds (defaults to settings.scraper_timeout_seconds)
         """
         self.site_name = site_name
         self.base_url = base_url
-        self.max_retries = max_retries
-        self.timeout = timeout
+        self.max_retries = max_retries if max_retries is not None else settings.retry_attempts
+        self.timeout = timeout if timeout is not None else int(settings.scraper_timeout_seconds)
         self.logger = logging.getLogger(f"scraper.{site_name}")
     
     @abstractmethod
@@ -91,7 +94,7 @@ class BaseScraper(ABC):
                 
                 # Validate scraped data
                 if await self.validate_data(data):
-                    data["scraped_at"] = datetime.utcnow().isoformat()
+                    data["scraped_at"] = datetime.now(timezone.utc).isoformat()
                     data["site_name"] = self.site_name
                     self.logger.info(f"Successfully scraped: {product_url}")
                     return data

@@ -15,8 +15,8 @@ class ProductCreate(BaseModel):
     stock_status: str = Field(default="unknown")
     description: Optional[str] = None
     
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "product_name": "iPhone 15 Pro",
                 "price": 999.99,
@@ -25,6 +25,7 @@ class ProductCreate(BaseModel):
                 "stock_status": "in_stock"
             }
         }
+    }
 
 
 class ProductResponse(BaseModel):
@@ -42,8 +43,7 @@ class ProductResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class PriceHistory(BaseModel):
@@ -54,8 +54,7 @@ class PriceHistory(BaseModel):
     currency: str
     recorded_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class HealthCheck(BaseModel):
@@ -70,10 +69,10 @@ class ScrapingRequest(BaseModel):
     """Scraping request model."""
     
     site_name: str
-    product_urls: List[str] = Field(..., min_items=1, max_items=100)
+    product_urls: List[str] = Field(..., min_length=1, max_length=100)
     
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "site_name": "amazon",
                 "product_urls": [
@@ -81,6 +80,7 @@ class ScrapingRequest(BaseModel):
                 ]
             }
         }
+    }
 
 
 class ScrapingResponse(BaseModel):
