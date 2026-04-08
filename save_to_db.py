@@ -8,6 +8,7 @@ Demonstrates:
 - Database statistics reporting
 """
 
+import argparse
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -18,7 +19,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from dateutil.parser import parse as parse_datetime
 
 from config import settings
-from src.scraper.scrapers import TestStoreScraper
+from src.scraper.scrapers import TestStoreScraper, AmazonTRScraper
 from src.database.models import Product, PriceHistory
 
 
@@ -33,12 +34,13 @@ logger = logging.getLogger(__name__)
 class ProductSaver:
     """Handle saving scraped products to database with upsert logic."""
     
-    def __init__(self, db_url: Optional[str] = None):
+    def __init__(self, db_url: Optional[str] = None, scraper=None):
         """
         Initialize the product saver.
         
         Args:
             db_url: Database URL (uses config if None)
+            scraper: Scraper instance to use (defaults to TestStoreScraper)
         """
         if db_url is None:
             # Use connection string from config
@@ -54,7 +56,7 @@ class ProductSaver:
         )
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         self.db = SessionLocal()
-        self.scraper = TestStoreScraper()
+        self.scraper = scraper if scraper is not None else TestStoreScraper()
         self.stats = {
             "inserted": 0,
             "updated": 0,
@@ -297,18 +299,51 @@ class ProductSaver:
         self.db.close()
 
 
+# ---------------------------------------------------------------------------
+# Site registry — add new scrapers here
+# ---------------------------------------------------------------------------
+SITE_REGISTRY = {
+    "test": (
+        TestStoreScraper,
+        "https://webscraper.io/test-sites/e-commerce/allinone/computers/laptops",
+    ),
+    "amazon_tr": (
+        AmazonTRScraper,
+        AmazonTRScraper.SEARCH_URL,
+    ),
+}
+
+
 async def main():
     """Main execution function."""
+    parser = argparse.ArgumentParser(
+        description="Scrape products and save them to the database."
+    )
+    parser.add_argument(
+        "--site",
+        choices=list(SITE_REGISTRY.keys()),
+        default="test",
+        help="Which scraper to use (default: test)",
+    )
+    parser.add_argument(
+        "--url",
+        default=None,
+        help="Override the default URL for the chosen scraper",
+    )
+    args = parser.parse_args()
+
+    scraper_cls, default_url = SITE_REGISTRY[args.site]
+    product_url = args.url or default_url
+    scraper_instance = scraper_cls()
+    logger.info(f"Using scraper: {scraper_cls.__name__}")
+    logger.info(f"Target URL   : {product_url}")
+
     saver = None
     
     try:
         # Create saver instance
-        saver = ProductSaver()
-        
-        # Get product URL from config (can also be passed as argument)
-        product_url = getattr(settings, 'scraper_url', 
-                             "https://webscraper.io/test-sites/e-commerce/allinone/computers/laptops")
-        valid_products, invalid_products = await saver.scrape_products(product_url)
+        saver = ProductSaver(scraper=scraper_instance)
+        valid_products, invalid_products = await saver.scrape_products(product_url)  # noqa: E501
         
         # Save products with upsert logic
         if valid_products:

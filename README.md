@@ -1,194 +1,208 @@
-"""README for E-Commerce Price Tracker."""
+﻿# E-Commerce Price Tracker
 
-# E-Commerce Price Tracker
+A production-ready e-commerce price tracking system built with **FastAPI**, **PostgreSQL**, and **Playwright**. It scrapes product listings from multiple sites, records every price change in a dedicated history table, and exposes the data through a fully-documented REST API.
 
-Professional price tracking and analysis pipeline for 650+ e-commerce sites.
+---
 
-## Teknoloji Yığını
+## Features
 
-- **Language**: Python 3.10+
-- **Scraper**: Playwright (JavaScript-based site support)
-- **API**: FastAPI
-- **Database**: PostgreSQL
-- **Containerization**: Docker & Docker Compose
+- **Multi-site scraper architecture** — pluggable `BaseScraper` class makes adding new sites straightforward
+- **Stealth scraping** — Amazon Turkey scraper uses playwright-stealth, rotating user-agents, scroll simulation, random jitter delays, and captcha detection
+- **Price history tracking** — every price change is automatically recorded; unchanged prices are skipped
+- **Smart upsert logic** — inserts new products, updates on price change, skips identical records
+- **REST API** — FastAPI with auto-generated Swagger UI (`/docs`) and ReDoc (`/redoc`)
+- **Paginated endpoints** — filterable product listing, per-product price history with date range
+- **Dockerized** — single `docker compose up` starts PostgreSQL and the API server
+- **Config-driven** — all settings managed through a `.env` file with Pydantic v2 type validation
 
-## Proje Yapısı
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| API framework | FastAPI 0.104, Uvicorn, Pydantic v2 |
+| Database | PostgreSQL 15, SQLAlchemy 2.0, psycopg2 |
+| Scraping | Playwright 1.40, playwright-stealth, fake-useragent |
+| Configuration | pydantic-settings, python-dotenv |
+| Containerisation | Docker, Docker Compose |
+| Testing | pytest, pytest-asyncio |
+
+---
+
+## Project Structure
 
 ```
-ecommerce-tracker/
+E-Commerce Tracker/
 ├── src/
-│   ├── scraper/              # Web scraping logic
-│   │   ├── base.py           # Abstract BaseScraper class
-│   │   ├── scrapers.py       # Concrete implementations
-│   │   └── validators.py     # Data validation
-│   ├── api/                  # FastAPI application
-│   │   ├── main.py           # App initialization
-│   │   ├── routes.py         # API endpoints
-│   │   └── models.py         # Pydantic models
-│   └── database/             # Database layer
-│       ├── connection.py     # PostgreSQL connection
-│       ├── models.py         # SQLAlchemy ORM models
-│       └── schema.sql        # Database schema
-├── data/                     # CSV/JSON outputs
-├── logs/                     # Application logs
-├── tests/                    # Unit & integration tests
-├── config.py                 # Configuration management
-├── main.py                   # Entry point
-├── requirements.txt          # Python dependencies
-├── docker-compose.yml        # Docker Compose config
-├── Dockerfile                # Docker build config
-└── README.md                 # This file
+│   ├── api/
+│   │   ├── main.py          # FastAPI app, CORS middleware, lifespan hooks
+│   │   ├── routes.py        # Endpoint handlers (products, stats, scraping)
+│   │   └── models.py        # Pydantic request/response schemas
+│   ├── database/
+│   │   ├── connection.py    # SQLAlchemy engine & session factory
+│   │   ├── models.py        # ORM models: Product, PriceHistory
+│   │   └── schema.sql       # SQL schema (auto-applied by Docker on first boot)
+│   └── scraper/
+│       ├── base.py          # Abstract BaseScraper with retry logic
+│       ├── scrapers.py      # TestStoreScraper, AmazonTRScraper
+│       └── validators.py    # DataValidator helpers
+├── tests/
+│   ├── conftest.py
+│   ├── test_api.py
+│   └── test_scraper.py
+├── save_to_db.py            # CLI scrape-and-save pipeline
+├── main.py                  # Local dev entry point
+├── config.py                # Pydantic Settings model
+├── docker-compose.yml       # PostgreSQL + API services
+├── Dockerfile               # API image (Python 3.12-slim + Chromium)
+├── requirements.txt
+└── .env.example
 ```
 
-## Kurulum (Installation)
+---
 
-### 1. Gereksinimler (Requirements)
-- Python 3.10+
-- Docker & Docker Compose (isteğe bağlı)
-- PostgreSQL (Docker ile veya lokal)
+## Prerequisites
 
-### 2. Virtual Environment Oluşturma
+- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** — recommended; no local Python needed for the API
+- **Python 3.12+** — required to run scrapers locally
+
+---
+
+## Quick Start — Docker
 
 ```bash
-python -m venv venv
-source venv/Scripts/activate  # Windows: venv\Scripts\activate
+# 1. Clone the repository
+git clone <repo-url>
+cd "E-Commerce Tracker"
+
+# 2. Create your environment file
+copy .env.example .env
+#    → open .env and set DB_PASSWORD to something secure
+
+# 3. Build and start all services (PostgreSQL + API)
+docker compose up --build -d
+
+# 4. Verify the API is running
+curl http://localhost:8000/health
+
+# 5. Open interactive API docs
+start http://localhost:8000/docs
 ```
 
-### 3. Bağımlılıkları Kurma
+> PostgreSQL listens on **host port 5433** (mapped to container port 5432).  
+> The API listens on **host port 8000**.
 
-```bash
+---
+
+## Local Development Setup
+
+```powershell
+# 1. Create and activate a virtual environment
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# 2. Install Python dependencies
 pip install -r requirements.txt
-playwright install
+
+# 3. Install the Playwright Chromium browser
+playwright install chromium
+
+# 4. Copy and configure the environment file
+copy .env.example .env
+#    Set DB_HOST=localhost, DB_PORT=5433 to reach the Docker Postgres
+
+# 5. Start only the database
+docker compose up postgres -d
+
+# 6. Run the API with hot-reload
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 4. Çevre Değişkenlerini Ayarlama
+---
 
-```bash
-cp .env.example .env
-# Gerekirse .env dosyasını düzenleyin
+## Running the Scrapers
+
+All scraping is done through the `save_to_db.py` CLI:
+
+```powershell
+# Demo store — webscraper.io test site (117 laptops, no anti-bot measures)
+python save_to_db.py --site test
+
+# Amazon Turkey — laptop search (default URL)
+python save_to_db.py --site amazon_tr
+
+# Amazon Turkey — custom search keyword
+python save_to_db.py --site amazon_tr --url "https://www.amazon.com.tr/s?k=telefon"
 ```
 
-### 5. Veritabanını İnitialize Etme
+**Upsert behaviour per run:**
 
-```bash
-python main.py
+| Situation | Action |
+|---|---|
+| Product URL not in DB | INSERT + create initial price history row |
+| URL exists, price changed | UPDATE product + append price history row |
+| URL exists, price unchanged | Skip (no write) |
+
+---
+
+## API Reference
+
+Interactive docs at **`/docs`** (Swagger UI) and **`/redoc`** (ReDoc).
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness + DB connectivity check |
+| `GET` | `/api/v1/products` | Paginated list (`skip`, `limit`, `site_name` filter) |
+| `GET` | `/api/v1/products/{id}` | Single product with full price history |
+| `GET` | `/api/v1/products/{id}/price-history` | Price history filtered by `days` look-back |
+| `POST` | `/api/v1/products` | Manually insert a product record |
+| `GET` | `/api/v1/stats` | Counts: products, sites tracked, price snapshots |
+
+---
+
+## Configuration Reference
+
+Copy `.env.example` → `.env`. Inside Docker, use `DB_HOST=postgres`; for local dev against a Docker Postgres use `DB_HOST=localhost`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DB_HOST` | `localhost` | PostgreSQL hostname |
+| `DB_PORT` | `5433` | PostgreSQL port (host-side) |
+| `DB_USER` | `ecommerce_user` | Database user |
+| `DB_PASSWORD` | — | Database password **(required)** |
+| `DB_NAME` | `ecommerce_tracker` | Database name |
+| `API_HOST` | `0.0.0.0` | FastAPI bind address |
+| `API_PORT` | `8000` | FastAPI port |
+| `DEBUG` | `False` | FastAPI debug mode |
+| `PLAYWRIGHT_HEADLESS` | `True` | Headless browser (`False` shows the browser window) |
+| `SCRAPER_TIMEOUT` | `60000` | Navigation timeout in milliseconds |
+| `RETRY_ATTEMPTS` | `3` | Max retries per failed scrape |
+| `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+| `LOG_FILE` | `logs/app.log` | Log file path |
+
+---
+
+## Running Tests
+
+```powershell
+pytest tests/ -v
 ```
 
-## Kullanım (Usage)
+---
 
-### API Sunucusunu Başlatma
+## Amazon Turkey Scraper — Anti-Detection Details
 
-```bash
-python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
-```
+The `amazon_tr` scraper stacks multiple evasion layers:
 
-API documentation: http://localhost:8000/docs
+| Layer | Detail |
+|---|---|
+| **playwright-stealth** | Patches `navigator.webdriver`, WebGL fingerprint, and dozens of other signals |
+| **Rotating user-agents** | `fake-useragent` picks a realistic Chrome/Firefox/Edge UA per request |
+| **Random jitter** | 2–6 s sleep before navigation; 1–3 s after scroll |
+| **Scroll simulation** | Page is scrolled down in 10 increments before extraction |
+| **Turkish browser profile** | `Accept-Language: tr-TR`, Google Turkey referer header, `locale=tr-TR`, `timezone=Europe/Istanbul` |
+| **Captcha detection** | Title checked for block/survey strings → `CRITICAL` log if triggered |
+| **Multi-fallback selectors** | 4–5 CSS selectors tried per field (name, price, URL); first match wins |
 
-### Docker ile Çalıştırma
-
-```bash
-docker-compose up -d
-```
-
-Services:
-- API: http://localhost:8000
-- Database: localhost:5432
-- API Docs: http://localhost:8000/docs
-
-### Testleri Çalıştırma
-
-```bash
-pytest -v
-pytest --cov=src tests/  # Coverage raporu ile
-```
-
-## API Endpoints
-
-### Health Check
-```
-GET /health
-```
-
-### Ürün Yönetimi
-```
-POST /api/v1/products                      # Yeni ürün oluştur
-GET /api/v1/products                       # Tüm ürünleri listele
-GET /api/v1/products/{product_id}          # Belirli ürünü getir
-GET /api/v1/products/{product_id}/price-history  # Fiyat geçmişi
-```
-
-### Scraping
-```
-POST /api/v1/scraping/batch               # Batch scraping başlat
-```
-
-### İstatistikler
-```
-GET /api/v1/stats                          # Uygulama istatistiği
-```
-
-## Özellikler (Features)
-
-✅ **Modüler Yapı**: Scraper, API ve Database bağımsız modüller
-
-✅ **Hata Yönetimi**: Otomatik retry mekanizması ve exponential backoff
-
-✅ **Veri Doğrulama**: Kapsamlı data validation özellikleri
-
-✅ **Ölçeklenebilirlik**: 650+ site için hazır mimari
-
-✅ **Async/Await**: Yüksek concurrency performansı
-
-✅ **Logging**: Detaylı uygulama logları
-
-✅ **API Documentation**: FastAPI Swagger UI
-
-✅ **Docker Support**: Kolay deployment
-
-✅ **Test Coverage**: Unit ve integration testler
-
-## Geliştirme (Development)
-
-### Yeni Scraper Ekleme
-
-```python
-from src.scraper import BaseScraper
-from src.scraper.validators import DataValidator
-
-class NewSiteScraper(BaseScraper):
-    def __init__(self):
-        super().__init__(
-            site_name="newsite",
-            base_url="https://newsite.com"
-        )
-    
-    async def scrape(self, product_url: str) -> dict:
-        # Implement scraping logic with Playwright
-        pass
-    
-    async def validate_data(self, data: dict) -> bool:
-        return DataValidator.validate_product(data)
-```
-
-## Veri Doğruluğu (Data Accuracy)
-
-Sistem şunları sağlar:
-- Her ürün verisi otomatik olarak doğrulanır
-- Hatalı veriler günlüğe kaydedilir
-- Fiyat geçmişi otomatik olarak tutulur
-- Duplicate URLs engellenir
-
-## Performance
-
-- Concurrent scraping: Ayarlanabilir (default: 5)
-- Request timeout: 30 saniye
-- Retry attempts: 3 (exponential backoff)
-- Batch processing: Optimization için
-
-## Lisans (License)
-
-MIT
-
-## İletişim (Contact)
-
-Sorular veya öneriler için issues açabilirsiniz.
+If 0 products are extracted despite cards being found, set `LOG_LEVEL=DEBUG` — the scraper logs the first 500 characters of the first card's HTML for diagnosis.

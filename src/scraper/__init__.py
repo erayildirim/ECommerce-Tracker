@@ -2,12 +2,13 @@
 
 from .base import BaseScraper
 from .validators import DataValidator
-from .scrapers import TestStoreScraper, AmazonScraper, EbayScraper
+from .scrapers import TestStoreScraper, AmazonScraper, AmazonTRScraper, EbayScraper
 
 __all__ = [
     "BaseScraper",
     "DataValidator",
     "TestStoreScraper",
     "AmazonScraper",
-    "EbayScraper"
+    "AmazonTRScraper",
+    "EbayScraper",
 ]
