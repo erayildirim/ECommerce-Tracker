@@ -1,57 +1,106 @@
 """FastAPI application setup."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+from datetime import datetime, timezone
+from sqlalchemy.orm import Session
 
 from config import settings
 from .routes import router
-from .models import HealthCheck
-from src.database import init_db
-from datetime import datetime, timezone
+from .models import HealthCheck, StatsResponse
+from src.database import init_db, get_db, Product
+from src.database.models import PriceHistory as DBPriceHistory
 
 
-# Configure logging
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
 logging.basicConfig(
     level=settings.log_level,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(settings.log_file),
-        logging.StreamHandler()
-    ]
+        logging.StreamHandler(),
+    ],
 )
 
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan context manager for startup and shutdown events."""
-    # Startup
+    """Initialize DB tables on startup; log shutdown."""
     logger.info("Starting E-Commerce Tracker API")
     try:
         init_db()
         logger.info("Database initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize database: {str(e)}")
-    
+        logger.error(f"Failed to initialize database: {e}")
     yield
-    
-    # Shutdown
     logger.info("Shutting down E-Commerce Tracker API")
 
 
-# Create FastAPI app
+# ---------------------------------------------------------------------------
+# OpenAPI tag metadata (drives Swagger sidebar order and descriptions)
+# ---------------------------------------------------------------------------
+
+TAGS_METADATA = [
+    {
+        "name": "Products",
+        "description": (
+            "Operations on tracked products. "
+            "Retrieve paginated lists, individual product details with full price history, "
+            "or create products manually."
+        ),
+    },
+    {
+        "name": "Statistics",
+        "description": "Aggregated application-level metrics.",
+    },
+    {
+        "name": "Scraping",
+        "description": "Trigger and manage scraping jobs.",
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+
 app = FastAPI(
     title="E-Commerce Price Tracker",
-    description="Professional price tracking and analysis pipeline for 650+ e-commerce sites",
+    description=(
+        "## E-Commerce Price Tracker API\n\n"
+        "Track product prices across e-commerce sites.\n\n"
+        "### Key Features\n"
+        "- **117+ products** scraped from the webscraper.io test store\n"
+        "- Full **price history** per product\n"
+        "- Paginated product listing with site filtering\n"
+        "- PostgreSQL-backed persistence via SQLAlchemy\n\n"
+        "Use the endpoints below to explore the data. "
+        "The interactive docs are available at `/docs` (Swagger UI) and `/redoc`."
+    ),
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    openapi_tags=TAGS_METADATA,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 
-# Add CORS middleware
+# ---------------------------------------------------------------------------
+# Middleware
+# ---------------------------------------------------------------------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -61,36 +110,44 @@ app.add_middleware(
 )
 
 
-# Include routers
-app.include_router(router)
+# ---------------------------------------------------------------------------
+# Core routes (health + root) — not under /api/v1 prefix
+# ---------------------------------------------------------------------------
 
+@app.get(
+    "/health",
+    response_model=HealthCheck,
+    tags=["Health"],
+    summary="Health check",
+    description="Returns service health status and database connectivity.",
+)
+async def health_check(db: Session = Depends(get_db)):
+    try:
+        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        db_status = "unavailable"
 
-@app.get("/health", response_model=HealthCheck)
-async def health_check():
-    """Health check endpoint."""
     return HealthCheck(
-        status="healthy",
-        database="connected",
-        timestamp=datetime.now(timezone.utc)
+        status="healthy" if db_status == "connected" else "degraded",
+        database=db_status,
+        timestamp=datetime.now(timezone.utc),
     )
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 async def root():
-    """Root endpoint."""
     return {
         "message": "E-Commerce Price Tracker API",
         "version": "1.0.0",
-        "docs": "/docs"
+        "docs": "/docs",
+        "redoc": "/redoc",
     }
 
 
-if __name__ == "__main__":
-    import uvicorn
-    
-    uvicorn.run(
-        app,
-        host=settings.api_host,
-        port=settings.api_port,
-        reload=settings.debug
-    )
+# ---------------------------------------------------------------------------
+# Include feature routers
+# ---------------------------------------------------------------------------
+
+app.include_router(router)
+
